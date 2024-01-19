@@ -128,13 +128,18 @@ jobs:
             exit 1
           fi
 
+      - name: debug info
+        run: |
+          echo "Current user: $(whoami)"
+          ls -l /dev/serial_ports
+
       - name: flash test
         env:
           ESPFLASH_PORT: /dev/serial_ports/${{ matrix.board }}
           ESPFLASH_APP: espflash/${{ matrix.board }}_app/hello_world
         shell: bash
         run: |
-          timeout 10s espflash_app/espflash flash --monitor ${{ env.ESPFLASH_APP }} 2>&1
+          espflash_app/espflash flash --monitor ${{ env.ESPFLASH_APP }} 2>&1
 
       # if ! echo "$result" | grep -q "Flashing has completed!"; then
       # if [[ $result == *"Flashing has completed!"* && $result == *"Hello world!"* ]]; then
