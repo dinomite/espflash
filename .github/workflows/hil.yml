@@ -119,6 +119,8 @@ jobs:
 
       - name: info about artifacts
         run: |
+          echo "Working directory:"
+          pwd
           echo "List of files in current directory:"
           ls -l
           echo "List of files in '/__w/espflash/espflash/espflash/esp32c6_app':"
