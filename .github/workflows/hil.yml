@@ -117,6 +117,15 @@ jobs:
           name: espflash
           path: espflash_app
 
+      - name: info about artifacts
+        run: |
+          echo "List of files in current directory:"
+          ls -l
+          echo "List of files in '/__w/espflash/espflash/espflash/esp32c6_app':"
+          ls -l /__w/espflash/espflash/espflash/esp32c6_app
+          echo "List of files in '/__w/espflash/espflash/espflash_app':"
+          ls -l /__w/espflash/espflash/espflash_app
+
       - run: chmod +x espflash_app/espflash
 
       - name: board-info test
