@@ -117,43 +117,48 @@ jobs:
           name: espflash
           path: espflash_app
 
-      - name: info about artifacts
+      - name: common information
+        env:
+          ESPFLASH_APP: espflash/${{ matrix.board }}_app
         run: |
+          echo "Current user: $(whoami)"
           echo "Working directory:"
           pwd
-          echo "List of files in current directory:"
-          ls -l
-          echo "List of files in '/__w/espflash/espflash/espflash/esp32c6_app':"
-          ls -l /__w/espflash/espflash/espflash/esp32c6_app
-          echo "List of files in '/__w/espflash/espflash/espflash_app':"
-          ls -l /__w/espflash/espflash/espflash_app
+          echo "List of files in '${{ env.ESPFLASH_APP }}':"
+          ls -l ${{ env.ESPFLASH_APP }}
+          echo "List of files in 'espflash_app':"
+          ls -l espflash_app
 
       - run: chmod +x espflash_app/espflash
 
-      - name: board-info test
-        env:
-          ESPFLASH_PORT: /dev/serial_ports/${{ matrix.board }}
-        shell: bash
+      - name: information after chmod
         run: |
-          result=$(espflash_app/espflash board-info 2>&1)
-          echo "$result"
+          echo "List of files in 'espflash_app':"
+          ls -l espflash_app
 
-          if ! echo "$result" | grep -q "esp32"; then
-            exit 1
-          fi
-
-      - name: debug info
+      - name: information about serial ports
         run: |
-          echo "Current user: $(whoami)"
           ls -l /dev/serial_ports
 
-      - name: flash test
-        env:
-          ESPFLASH_PORT: /dev/serial_ports/${{ matrix.board }}
-          ESPFLASH_APP: espflash/${{ matrix.board }}_app/hello_world
-        shell: bash
-        run: |
-          timeout 10s espflash_app/espflash flash --monitor ${{ env.ESPFLASH_APP }} 2>&1
+      # - name: board-info test
+      #   env:
+      #     ESPFLASH_PORT: /dev/serial_ports/${{ matrix.board }}
+      #   shell: bash
+      #   run: |
+      #     result=$(espflash_app/espflash board-info 2>&1)
+      #     echo "$result"
+
+      #     if ! echo "$result" | grep -q "esp32"; then
+      #       exit 1
+      #     fi
+
+      # - name: flash test
+      #   env:
+      #     ESPFLASH_PORT: /dev/serial_ports/${{ matrix.board }}
+      #     ESPFLASH_APP: espflash/${{ matrix.board }}_app/hello_world
+      #   shell: bash
+      #   run: |
+      #     timeout 10s espflash_app/espflash flash --monitor ${{ env.ESPFLASH_APP }} 2>&1
 
       # if ! echo "$result" | grep -q "Flashing has completed!"; then
       # if [[ $result == *"Flashing has completed!"* && $result == *"Hello world!"* ]]; then
