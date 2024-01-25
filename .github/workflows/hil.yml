@@ -136,9 +136,9 @@ jobs:
           echo "List of files in 'espflash_app':"
           ls -l espflash_app
 
-      - name: information about serial ports
+      - name: information about port ttyUSB0
         run: |
-          ls /dev
+          ls -l /dev/ttyUSB0
 
       # - name: board-info test
       #   env:
