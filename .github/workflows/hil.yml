@@ -98,6 +98,9 @@ jobs:
     if: ${{ github.repository_owner == 'esp-rs' }}
     needs: [build-app, build-espflash]
     runs-on: [self-hosted, linux, x64, "${{ matrix.board }}" ]
+    container:
+      image: ubuntu:20.04
+      options: --privileged
     strategy:
       matrix:
         # board: [esp32, esp32c2, esp32c3, esp32c6, esp32h2, esp32s2, esp32s3]
@@ -133,18 +136,13 @@ jobs:
           echo "Current user: $(whoami)"
           ls -l /dev/serial_ports
 
-      - name: monitor only test
+      - name: flash test
+        env:
+          ESPFLASH_PORT: /dev/serial_ports/${{ matrix.board }}
+          ESPFLASH_APP: espflash/${{ matrix.board }}_app/hello_world
         shell: bash
         run: |
-          timeout 10s espflash_app/espflash monitor 2>&1
-
-      # - name: flash test
-      #   env:
-      #     ESPFLASH_PORT: /dev/serial_ports/${{ matrix.board }}
-      #     ESPFLASH_APP: espflash/${{ matrix.board }}_app/hello_world
-      #   shell: bash
-      #   run: |
-      #     timeout 10s espflash_app/espflash flash --monitor ${{ env.ESPFLASH_APP }} 2>&1
+          timeout 10s espflash_app/espflash flash --monitor ${{ env.ESPFLASH_APP }} 2>&1
 
       # if ! echo "$result" | grep -q "Flashing has completed!"; then
       # if [[ $result == *"Flashing has completed!"* && $result == *"Hello world!"* ]]; then
