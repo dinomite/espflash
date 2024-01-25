@@ -138,7 +138,7 @@ jobs:
 
       - name: information about serial ports
         run: |
-          ls -l /dev/serial_ports
+          ls /dev
 
       # - name: board-info test
       #   env:
