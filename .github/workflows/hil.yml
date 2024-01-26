@@ -136,13 +136,22 @@ jobs:
           echo "List of files in 'espflash_app':"
           ls -l espflash_app
 
-      - name: information about port ttyUSB0
+      # - name: information about port ttyUSB0
+      #   run: |
+      #     ls -l /dev/ttyUSB0
+
+      - name: board-info esp32c3 test
+        if: ${{ matrix.board == 'esp32c3' }}
+        env:
+          ESPFLASH_PORT: /dev/ttyACM0
+        shell: bash
         run: |
-          ls -l /dev/ttyUSB0
+          espflash_app/espflash board-info 2>&1
 
       - name: board-info test
+        if: ${{ matrix.board != 'esp32c3' }}
         env:
-          ESPFLASH_PORT: /dev/serial_ports/${{ matrix.board }}
+          ESPFLASH_PORT: /dev/ttyUSB0
         shell: bash
         run: |
           espflash_app/espflash board-info 2>&1
