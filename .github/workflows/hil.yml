@@ -140,17 +140,19 @@ jobs:
         run: |
           ls -l /dev/ttyUSB0
 
-      # - name: board-info test
-      #   env:
-      #     ESPFLASH_PORT: /dev/serial_ports/${{ matrix.board }}
-      #   shell: bash
-      #   run: |
-      #     result=$(espflash_app/espflash board-info 2>&1)
-      #     echo "$result"
+      - name: board-info test
+        env:
+          ESPFLASH_PORT: /dev/serial_ports/${{ matrix.board }}
+        shell: bash
+        run: |
+          espflash_app/espflash board-info 2>&1
 
-      #     if ! echo "$result" | grep -q "esp32"; then
-      #       exit 1
-      #     fi
+      # result=$(espflash_app/espflash board-info 2>&1)
+      # echo "$result"
+
+      # if ! echo "$result" | grep -q "esp32"; then
+      #   exit 1
+      # fi
 
       # - name: flash test
       #   env:
