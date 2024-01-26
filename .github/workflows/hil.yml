@@ -100,7 +100,7 @@ jobs:
     runs-on: [self-hosted, linux, x64, "${{ matrix.board }}" ]
     container:
       image: ubuntu:20.04
-      options: --privileged
+      options: --privileged --interactive
     strategy:
       matrix:
         # board: [esp32, esp32c2, esp32c3, esp32c6, esp32h2, esp32s2, esp32s3]
