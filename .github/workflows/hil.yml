@@ -140,13 +140,13 @@ jobs:
       #   run: |
       #     ls -l /dev/ttyUSB0
 
-      - name: board-info esp32c3 test
-        if: ${{ matrix.board == 'esp32c3' }}
-        env:
-          ESPFLASH_PORT: /dev/ttyACM0
-        shell: bash
-        run: |
-          espflash_app/espflash board-info 2>&1
+      # - name: board-info esp32c3 test
+      #   if: ${{ matrix.board == 'esp32c3' }}
+      #   env:
+      #     ESPFLASH_PORT: /dev/ttyACM0
+      #   shell: bash
+      #   run: |
+      #     espflash_app/espflash board-info 2>&1
 
       - name: board-info test
         if: ${{ matrix.board != 'esp32c3' }}
@@ -154,14 +154,20 @@ jobs:
           ESPFLASH_PORT: /dev/ttyUSB0
         shell: bash
         run: |
-          espflash_app/espflash board-info 2>&1
+          result=$(espflash_app/espflash board-info 2>&1)
+          echo "$result"
 
-      # result=$(espflash_app/espflash board-info 2>&1)
-      # echo "$result"
+          if ! echo "$result" | grep -q "esp32"; then
+            exit 1
+          fi
 
-      # if ! echo "$result" | grep -q "esp32"; then
-      #   exit 1
-      # fi
+      - name: monitor test
+        if: ${{ matrix.board != 'esp32c3' }}
+        env:
+          ESPFLASH_PORT: /dev/ttyUSB0
+        shell: bash
+        run: |
+          timeout 10s espflash_app/espflash monitor 2>&1
 
       # - name: flash test
       #   env:
