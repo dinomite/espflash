@@ -132,7 +132,7 @@ jobs:
       - name: Monitor test
         if: ${{ matrix.board != 'esp32c3' }}
         continue-on-error: true
-        run: docker exec -i ${{ steps.docker-run.outputs.container-id }} bash -c "timeoout 20s ./espflash monitor --port /dev/ttyUSB0 2>&1"
+        run: docker exec -i ${{ steps.docker-run.outputs.container-id }} bash -c "timeout 20s ./espflash monitor --port /dev/ttyUSB0 2>&1"
 
       - name: Stop docker container
         run: docker stop ${{ steps.docker-run.outputs.container-id }}
