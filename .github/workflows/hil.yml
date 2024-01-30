@@ -117,7 +117,7 @@ jobs:
       - name: Run docker container
         id: docker-run
         run: |
-          result=$(docker -d -i --rm --priveleged ubuntu:20.04)
+          result=$(docker run -d -i --rm --priveleged ubuntu:20.04)
           echo "container-id=$(echo $result)" >> $GITHUB_OUTPUT
 
       - name: Copy espflash
