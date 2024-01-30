@@ -121,7 +121,7 @@ jobs:
           ESPFLASH_APP: espflash/${{ matrix.board }}_app/hello_world
         shell: 'script -q -e -c "bash {0}"'
         run: |
-          timeout 10s espflash_app/espflash flash --monitor ${{ env.ESPFLASH_APP }} 2>&1
+          timeout 20s espflash_app/espflash flash --monitor ${{ env.ESPFLASH_APP }} 2>&1
 
           ret=$?
           if [[ $ret -eq 124 ]]; then
