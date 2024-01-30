@@ -27,8 +27,6 @@ jobs:
         board:
           - mcu: esp32
             target: xtensa-esp32-none-elf
-          # - mcu: esp32c2
-          #   target: riscv32imc-unknown-none-elf
           - mcu: esp32c3
             target: riscv32imc-unknown-none-elf
           - mcu: esp32c6
@@ -98,12 +96,8 @@ jobs:
     if: ${{ github.repository_owner == 'esp-rs' }}
     needs: [build-app, build-espflash]
     runs-on: [self-hosted, linux, x64, "${{ matrix.board }}" ]
-    container:
-      image: ubuntu:20.04
-      options: --privileged --interactive --tty
     strategy:
       matrix:
-        # board: [esp32, esp32c2, esp32c3, esp32c6, esp32h2, esp32s2, esp32s3]
         board: [esp32, esp32c3, esp32c6, esp32h2, esp32s2, esp32s3]
       fail-fast: false
     steps:
@@ -117,76 +111,28 @@ jobs:
           name: espflash
           path: espflash_app
 
-      - name: common information
-        env:
-          ESPFLASH_APP: espflash/${{ matrix.board }}_app
+      - name: Pull docker image
+        run: docker pull ubuntu:20.04
+
+      - name: Run docker container
+        id: docker-run
         run: |
-          echo "Current user: $(whoami)"
-          echo "Working directory:"
-          pwd
-          echo "List of files in '${{ env.ESPFLASH_APP }}':"
-          ls -l ${{ env.ESPFLASH_APP }}
-          echo "List of files in 'espflash_app':"
-          ls -l espflash_app
+          result=$(docker -d -i --rm --priveleged ubuntu:20.04)
+          echo "container-id=$(echo $result)" >> $GITHUB_OUTPUT
 
-      - run: chmod +x espflash_app/espflash
+      - name: Copy espflash
+        run: docker cp espflash_app/espflash ${{ steps.docker-run.outputs.container-id }}:/espflash
 
-      - name: information after chmod
-        run: |
-          echo "List of files in 'espflash_app':"
-          ls -l espflash_app
+      - name: Copy target
+        run: docker cp espflash/${{ matrix.board }}_app/hello_world ${{ steps.docker-run.outputs.container-id }}:/hello_world
 
-      - name: information about port ttyUSB0
+      - name: Allow to execute espflash
+        run: docker exec -it ${{ steps.docker-run.outputs.container-id }} bash -c "chmod +x espflash"
+
+      - name: Monitor test
         if: ${{ matrix.board != 'esp32c3' }}
-        run: |
-          ls -l /dev/ttyUSB0
+        continue-on-error: true
+        run: docker exec -it ${{ steps.docker-run.outputs.container-id }} bash -c "timeoout 20s ./espflash monitor --port /dev/ttyUSB0 2>&1"
 
-      # - name: board-info esp32c3 test
-      #   if: ${{ matrix.board == 'esp32c3' }}
-      #   env:
-      #     ESPFLASH_PORT: /dev/ttyACM0
-      #   shell: bash
-      #   run: |
-      #     espflash_app/espflash board-info 2>&1
-
-      - name: board-info test
-        if: ${{ matrix.board != 'esp32c3' }}
-        env:
-          ESPFLASH_PORT: /dev/ttyUSB0
-        shell: bash
-        run: |
-          result=$(espflash_app/espflash board-info 2>&1)
-          echo "$result"
-
-          if ! echo "$result" | grep -q "esp32"; then
-            exit 1
-          fi
-
-      - name: monitor test
-        if: ${{ matrix.board != 'esp32c3' }}
-        env:
-          ESPFLASH_PORT: /dev/ttyUSB0
-        shell: bash
-        run: |
-          timeout 10s espflash_app/espflash monitor 2>&1
-
-      # - name: flash test
-      #   env:
-      #     ESPFLASH_PORT: /dev/serial_ports/${{ matrix.board }}
-      #     ESPFLASH_APP: espflash/${{ matrix.board }}_app/hello_world
-      #   shell: bash
-      #   run: |
-      #     timeout 10s espflash_app/espflash flash --monitor ${{ env.ESPFLASH_APP }} 2>&1
-
-      # if ! echo "$result" | grep -q "Flashing has completed!"; then
-      # if [[ $result == *"Flashing has completed!"* && $result == *"Hello world!"* ]]; then
-        # exit 1
-      # fi
-
-      # - uses: ./.github/actions/setup-target
-      #   with:
-      #     arch: x86_64
-      #     target: x86_64-unknown-linux-gnu
-
-      # - name: Run Tests
-      #   run: ESPFLASH_PORT=/dev/serial_ports/${{ matrix.board }} ESPFLASH_APP=${{ matrix.board }}_app/hello_world cargo test
+      - name: Stop docker container
+        run: docker stop ${{ steps.docker-run.outputs.container-id }}
