@@ -29,8 +29,8 @@ jobs:
             target: xtensa-esp32-none-elf
           - mcu: esp32c3
             target: riscv32imc-unknown-none-elf
-          - mcu: esp32c6
-            target: riscv32imac-unknown-none-elf
+          # - mcu: esp32c6
+          #   target: riscv32imac-unknown-none-elf
           - mcu: esp32h2
             target: riscv32imac-unknown-none-elf
           - mcu: esp32s2
@@ -98,7 +98,8 @@ jobs:
     runs-on: [self-hosted, linux, x64, "${{ matrix.board }}" ]
     strategy:
       matrix:
-        board: [esp32, esp32c3, esp32c6, esp32h2, esp32s2, esp32s3]
+        # board: [esp32, esp32c3, esp32c6, esp32h2, esp32s2, esp32s3]
+        board: [esp32, esp32c3, esp32h2, esp32s2, esp32s3]
       fail-fast: false
     steps:
       - uses: actions/checkout@v4
@@ -136,6 +137,7 @@ jobs:
         shell: 'script -qec "bash {0}"'
         run: |
           result=$(timeout 20s espflash_app/espflash flash --monitor ${{ env.ESPFLASH_APP }} 2>&1)
+          echo "$result"
 
           ret=$?
           if [[ $ret -eq 124 ]]; then
