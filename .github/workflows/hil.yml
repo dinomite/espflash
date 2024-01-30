@@ -112,6 +112,17 @@ jobs:
           name: espflash
           path: espflash_app
 
+      - name: interactive test
+        shell: bash
+        run: |
+          echo "$-"
+
+          if [[ $- == *i* ]]; then
+            echo "Shell is interactive"
+          else
+            echo "Shell is not interactive"
+          fi
+
       - run: chmod +x espflash_app/espflash
 
       - name: board-info test
