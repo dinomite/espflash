@@ -111,28 +111,38 @@ jobs:
           name: espflash
           path: espflash_app
 
-      - name: Pull docker image
-        run: docker pull ubuntu:20.04
-
-      - name: Run docker container
-        id: docker-run
-        run: |
-          result=$(docker run -dti --rm --privileged ubuntu:20.04)
-          echo "container-id=$(echo $result)" >> $GITHUB_OUTPUT
-
-      - name: Copy espflash
-        run: docker cp espflash_app/espflash ${{ steps.docker-run.outputs.container-id }}:/espflash
-
-      - name: Copy target
-        run: docker cp espflash/${{ matrix.board }}_app/hello_world ${{ steps.docker-run.outputs.container-id }}:/hello_world
-
-      - name: Allow to execute espflash
-        run: docker exec -i ${{ steps.docker-run.outputs.container-id }} bash -c "chmod +x espflash"
+          shell: 'script -q -e -c "bash {0}"'
 
       - name: Monitor test
         if: ${{ matrix.board != 'esp32c3' }}
-        continue-on-error: true
-        run: docker exec -i ${{ steps.docker-run.outputs.container-id }} bash -c "timeout 20s ./espflash monitor --port /dev/ttyUSB0 2>&1"
+        env:
+          ESPFLASH_PORT: /dev/serial_ports/${{ matrix.board }}
+        shell: 'script -q -e -c "bash {0}"'
+        run: |
+          timeout 10s espflash_app/espflash monitor 2>&1
 
-      - name: Stop docker container
-        run: docker stop ${{ steps.docker-run.outputs.container-id }}
+      # - name: Pull docker image
+      #   run: docker pull ubuntu:20.04
+
+      # - name: Run docker container
+      #   id: docker-run
+      #   run: |
+      #     result=$(docker run -dti --rm --privileged ubuntu:20.04)
+      #     echo "container-id=$(echo $result)" >> $GITHUB_OUTPUT
+
+      # - name: Copy espflash
+      #   run: docker cp espflash_app/espflash ${{ steps.docker-run.outputs.container-id }}:/espflash
+
+      # - name: Copy target
+      #   run: docker cp espflash/${{ matrix.board }}_app/hello_world ${{ steps.docker-run.outputs.container-id }}:/hello_world
+
+      # - name: Allow to execute espflash
+      #   run: docker exec -i ${{ steps.docker-run.outputs.container-id }} bash -c "chmod +x espflash"
+
+      # - name: Monitor test
+      #   if: ${{ matrix.board != 'esp32c3' }}
+      #   continue-on-error: true
+      #   run: docker exec -i ${{ steps.docker-run.outputs.container-id }} bash -c "timeout 20s ./espflash monitor --port /dev/ttyUSB0 2>&1"
+
+      # - name: Stop docker container
+      #   run: docker stop ${{ steps.docker-run.outputs.container-id }}
