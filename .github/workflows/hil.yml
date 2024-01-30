@@ -127,12 +127,12 @@ jobs:
         run: docker cp espflash/${{ matrix.board }}_app/hello_world ${{ steps.docker-run.outputs.container-id }}:/hello_world
 
       - name: Allow to execute espflash
-        run: docker exec -it ${{ steps.docker-run.outputs.container-id }} bash -c "chmod +x espflash"
+        run: docker exec -i ${{ steps.docker-run.outputs.container-id }} bash -c "chmod +x espflash"
 
       - name: Monitor test
         if: ${{ matrix.board != 'esp32c3' }}
         continue-on-error: true
-        run: docker exec -it ${{ steps.docker-run.outputs.container-id }} bash -c "timeoout 20s ./espflash monitor --port /dev/ttyUSB0 2>&1"
+        run: docker exec -i ${{ steps.docker-run.outputs.container-id }} bash -c "timeoout 20s ./espflash monitor --port /dev/ttyUSB0 2>&1"
 
       - name: Stop docker container
         run: docker stop ${{ steps.docker-run.outputs.container-id }}
