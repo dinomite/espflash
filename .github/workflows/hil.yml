@@ -115,13 +115,20 @@ jobs:
 
       - run: chmod +x espflash_app/espflash
 
-      - name: Monitor test
-        if: ${{ matrix.board != 'esp32c3' }}
+      - name: Flash test
         env:
           ESPFLASH_PORT: /dev/serial_ports/${{ matrix.board }}
+          ESPFLASH_APP: espflash/${{ matrix.board }}_app/hello_world
         shell: 'script -q -e -c "bash {0}"'
         run: |
-          timeout 10s espflash_app/espflash monitor 2>&1
+          timeout 10s espflash_app/espflash flash --monitor ${{ env.ESPFLASH_APP }} 2>&1
+
+          ret=$?
+          if [[ $ret -eq 124 ]]; then
+            ret=0
+          fi
+
+          exit $ret
 
       # - name: Pull docker image
       #   run: docker pull ubuntu:20.04
