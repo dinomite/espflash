@@ -146,6 +146,8 @@ jobs:
         env:
           ESPFLASH_PORT: /dev/serial_ports/${{ matrix.board }}
           ESPFLASH_APP: espflash/${{ matrix.board }}_app/hello_world
+          RUST_BACKTRACE: 1
+          RUST_LOG: debug
         run: espflash_app/espflash flash ${{ env.ESPFLASH_APP }} 2>&1
 
       # - name: flash test
