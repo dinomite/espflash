@@ -160,3 +160,14 @@ jobs:
           fi
 
           exit $ret
+
+      - name: cat serial port
+        env:
+          ESPFLASH_PORT: /dev/serial_ports/${{ matrix.board }}
+        run: |
+          result=$(timeout 5s cat ${{ env.ESPFLASH_PORT }})
+          echo "$result"
+
+          if ! echo "$result" | grep -q "Hello world!"; then
+            exit 1
+          fi
