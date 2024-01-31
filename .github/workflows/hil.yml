@@ -141,14 +141,26 @@ jobs:
         env:
           ESPFLASH_PORT: /dev/serial_ports/${{ matrix.board }}
         run: espflash_app/espflash erase-flash 2>&1
-      
+
       - name: flash test
         env:
           ESPFLASH_PORT: /dev/serial_ports/${{ matrix.board }}
           ESPFLASH_APP: espflash/${{ matrix.board }}_app/hello_world
+        shell: bash
+        run: |
+          result=$(espflash_app/espflash flash ${{ env.ESPFLASH_APP }} 2>&1)
+          echo "$result"
+
+          if ! echo "$result" | grep -q "Flashing has completed!"; then
+            exit 1
+          fi
+
+      - name: monitor test
+        env:
+          ESPFLASH_PORT: /dev/serial_ports/${{ matrix.board }}
         shell: 'script -qec "bash {0}"'
         run: |
-          result=$(timeout 20s espflash_app/espflash flash --monitor ${{ env.ESPFLASH_APP }} 2>&1)
+          result=$(timeout 10s espflash_app/espflash monitor -b no-reset-no-sync -c ${{ matrix.board }} 2>&1)
           echo "$result"
 
           ret=$?
@@ -156,16 +168,16 @@ jobs:
             ret=0
           fi
 
-          if ! echo "$result" | grep -q "Flashing has completed!"; then
+          if ! echo "$result" | grep -q "Hello world!"; then
             ret=1
           fi
 
           exit $ret
 
-      - name: cat serial port
-        env:
-          ESPFLASH_PORT: /dev/serial_ports/${{ matrix.board }}
-        run: timeout 5s cat ${{ env.ESPFLASH_PORT }} 2>&1
+      # - name: cat serial port
+      #   env:
+      #     ESPFLASH_PORT: /dev/serial_ports/${{ matrix.board }}
+      #   run: timeout 5s cat ${{ env.ESPFLASH_PORT }} 2>&1
 
       # - name: cat serial port
       #   env:
