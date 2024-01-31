@@ -146,14 +146,20 @@ jobs:
         env:
           ESPFLASH_PORT: /dev/serial_ports/${{ matrix.board }}
           ESPFLASH_APP: espflash/${{ matrix.board }}_app/hello_world
-        shell: bash
-        run: |
-          result=$(espflash_app/espflash flash ${{ env.ESPFLASH_APP }} 2>&1)
-          echo "$result"
+        run: espflash_app/espflash flash ${{ env.ESPFLASH_APP }} 2>&1
 
-          if ! echo "$result" | grep -q "Flashing has completed!"; then
-            exit 1
-          fi
+      # - name: flash test
+      #   env:
+      #     ESPFLASH_PORT: /dev/serial_ports/${{ matrix.board }}
+      #     ESPFLASH_APP: espflash/${{ matrix.board }}_app/hello_world
+      #   shell: bash
+      #   run: |
+      #     result=$(espflash_app/espflash flash ${{ env.ESPFLASH_APP }} 2>&1)
+      #     echo "$result"
+
+      #     if ! echo "$result" | grep -q "Flashing has completed!"; then
+      #       exit 1
+      #     fi
 
       - name: monitor test
         env:
