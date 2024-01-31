@@ -148,6 +148,7 @@ jobs:
           ESPFLASH_APP: espflash/${{ matrix.board }}_app/hello_world
           RUST_BACKTRACE: 1
           RUST_LOG: debug
+        shell: 'script -qec "bash {0}"'
         run: espflash_app/espflash flash ${{ env.ESPFLASH_APP }} 2>&1
 
       # - name: flash test
