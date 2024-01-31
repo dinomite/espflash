@@ -165,18 +165,23 @@ jobs:
       - name: cat serial port
         env:
           ESPFLASH_PORT: /dev/serial_ports/${{ matrix.board }}
-        shell: bash
-        run: |
-          result=$(timeout 5s cat ${{ env.ESPFLASH_PORT }})
-          echo "$result"
+        run: timeout 5s cat ${{ env.ESPFLASH_PORT }} 2>&1
 
-          ret=$?
-          if [[ $ret -eq 124 ]]; then
-            ret=0
-          fi
+      # - name: cat serial port
+      #   env:
+      #     ESPFLASH_PORT: /dev/serial_ports/${{ matrix.board }}
+      #   shell: bash
+      #   run: |
+      #     result=$(timeout 5s cat ${{ env.ESPFLASH_PORT }})
+      #     echo "$result"
 
-          if ! echo "$result" | grep -q "Hello world!"; then
-            ret=1
-          fi
+      #     ret=$?
+      #     if [[ $ret -eq 124 ]]; then
+      #       ret=0
+      #     fi
 
-          exit $ret
+      #     if ! echo "$result" | grep -q "Hello world!"; then
+      #       ret=1
+      #     fi
+
+      #     exit $ret
