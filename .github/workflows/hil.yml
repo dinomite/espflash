@@ -136,17 +136,17 @@ jobs:
             exit 1
           fi
 
-      - name: erase-flash
-        env:
-          ESPFLASH_PORT: /dev/serial_ports/${{ matrix.board }}
-        run: espflash_app/espflash erase-flash 2>&1
+      # - name: erase-flash
+      #   env:
+      #     ESPFLASH_PORT: /dev/serial_ports/${{ matrix.board }}
+      #   run: espflash_app/espflash erase-flash 2>&1
 
       - name: flash test
         env:
           ESPFLASH_PORT: /dev/serial_ports/${{ matrix.board }}
           ESPFLASH_APP: espflash/${{ matrix.board }}_app/hello_world
-          RUST_BACKTRACE: full
-          RUST_LOG: trace
+          # RUST_BACKTRACE: full
+          # RUST_LOG: trace
         run: espflash_app/espflash flash ${{ env.ESPFLASH_APP }} 2>&1
 
       # - name: flash test
