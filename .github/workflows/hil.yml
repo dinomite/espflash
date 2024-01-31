@@ -128,6 +128,7 @@ jobs:
       - name: board-info test
         env:
           ESPFLASH_PORT: /dev/serial_ports/${{ matrix.board }}
+        shell: bash
         run: |
           result=$(espflash_app/espflash board-info 2>&1)
           echo "$result"
@@ -156,7 +157,7 @@ jobs:
           fi
 
           if ! echo "$result" | grep -q "Flashing has completed!"; then
-            exit 1
+            ret=1
           fi
 
           exit $ret
@@ -164,10 +165,18 @@ jobs:
       - name: cat serial port
         env:
           ESPFLASH_PORT: /dev/serial_ports/${{ matrix.board }}
+        shell: bash
         run: |
           result=$(timeout 5s cat ${{ env.ESPFLASH_PORT }})
           echo "$result"
 
-          if ! echo "$result" | grep -q "Hello world!"; then
-            exit 1
+          ret=$?
+          if [[ $ret -eq 124 ]]; then
+            ret=0
           fi
+
+          if ! echo "$result" | grep -q "Hello world!"; then
+            ret=1
+          fi
+
+          exit $ret
