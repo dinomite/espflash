@@ -9,6 +9,7 @@
 use std::collections::HashMap;
 
 use esp_idf_part::{AppType, DataType, Partition, PartitionTable, SubType, Type};
+use serde::{Deserialize, Serialize};
 use strum::{Display, EnumIter, EnumString, EnumVariantNames};
 
 use self::flash_target::MAX_RAM_BLOCK_SIZE;
@@ -18,6 +19,7 @@ pub use self::{
     esp32c3::Esp32c3,
     esp32c6::Esp32c6,
     esp32h2::Esp32h2,
+    esp32p4::Esp32p4,
     esp32s2::Esp32s2,
     esp32s3::Esp32s3,
     esp8266::Esp8266,
@@ -27,7 +29,7 @@ use crate::{
     connection::Connection,
     elf::FirmwareImage,
     error::Error,
-    flasher::{FlashFrequency, FlashMode, FlashSize, SpiAttachParams, FLASH_WRITE_SIZE},
+    flasher::{FlashData, FlashFrequency, SpiAttachParams, FLASH_WRITE_SIZE},
     image_format::{ImageFormat, ImageFormatKind},
 };
 
@@ -39,10 +41,59 @@ mod esp32c2;
 mod esp32c3;
 mod esp32c6;
 mod esp32h2;
+mod esp32p4;
 mod esp32s2;
 mod esp32s3;
 mod esp8266;
 mod flash_target;
+
+/// Supported crystal frequencies
+///
+/// Note that not all frequencies are supported by each target device.
+#[cfg_attr(feature = "cli", derive(clap::ValueEnum))]
+#[derive(
+    Debug,
+    Default,
+    Clone,
+    Copy,
+    Hash,
+    PartialEq,
+    Eq,
+    Display,
+    EnumVariantNames,
+    Serialize,
+    Deserialize,
+)]
+#[non_exhaustive]
+#[repr(u32)]
+pub enum XtalFrequency {
+    #[strum(serialize = "26 MHz")]
+    /// 26 MHz
+    _26Mhz,
+    #[strum(serialize = "32 MHz")]
+    /// 32 MHz
+    _32Mhz,
+    #[strum(serialize = "40 MHz")]
+    /// 40 MHz
+    #[default]
+    _40Mhz,
+}
+
+impl XtalFrequency {
+    pub fn default(chip: Chip) -> Self {
+        match chip {
+            Chip::Esp32 => Self::_40Mhz,
+            Chip::Esp32c2 => Self::_40Mhz,
+            Chip::Esp32c3 => Self::_40Mhz,
+            Chip::Esp32c6 => Self::_40Mhz,
+            Chip::Esp32h2 => Self::_32Mhz,
+            Chip::Esp32p4 => Self::_40Mhz,
+            Chip::Esp32s2 => Self::_40Mhz,
+            Chip::Esp32s3 => Self::_40Mhz,
+            Chip::Esp8266 => Self::_40Mhz,
+        }
+    }
+}
 
 /// All supported devices
 #[cfg_attr(feature = "cli", derive(clap::ValueEnum))]
@@ -58,12 +109,14 @@ pub enum Chip {
     Esp32c3,
     /// ESP32-C6
     Esp32c6,
+    /// ESP32-H2
+    Esp32h2,
+    /// ESP32-P4
+    Esp32p4,
     /// ESP32-S2
     Esp32s2,
     /// ESP32-S3
     Esp32s3,
-    /// ESP32-H2
-    Esp32h2,
     /// ESP8266
     Esp8266,
 }
@@ -78,12 +131,14 @@ impl Chip {
             Ok(Chip::Esp32c3)
         } else if Esp32c6::has_magic_value(magic) {
             Ok(Chip::Esp32c6)
+        } else if Esp32h2::has_magic_value(magic) {
+            Ok(Chip::Esp32h2)
+        } else if Esp32p4::has_magic_value(magic) {
+            Ok(Chip::Esp32p4)
         } else if Esp32s2::has_magic_value(magic) {
             Ok(Chip::Esp32s2)
         } else if Esp32s3::has_magic_value(magic) {
             Ok(Chip::Esp32s3)
-        } else if Esp32h2::has_magic_value(magic) {
-            Ok(Chip::Esp32h2)
         } else if Esp8266::has_magic_value(magic) {
             Ok(Chip::Esp8266)
         } else {
@@ -97,9 +152,10 @@ impl Chip {
             Chip::Esp32c2 => Box::new(Esp32c2),
             Chip::Esp32c3 => Box::new(Esp32c3),
             Chip::Esp32c6 => Box::new(Esp32c6),
+            Chip::Esp32h2 => Box::new(Esp32h2),
+            Chip::Esp32p4 => Box::new(Esp32p4),
             Chip::Esp32s2 => Box::new(Esp32s2),
             Chip::Esp32s3 => Box::new(Esp32s3),
-            Chip::Esp32h2 => Box::new(Esp32h2),
             Chip::Esp8266 => Box::new(Esp8266),
         }
     }
@@ -277,7 +333,7 @@ pub trait Target: ReadEFuse {
     fn minor_chip_version(&self, connection: &mut Connection) -> Result<u32, Error>;
 
     /// What is the crystal frequency?
-    fn crystal_freq(&self, connection: &mut Connection) -> Result<u32, Error>;
+    fn crystal_freq(&self, connection: &mut Connection) -> Result<XtalFrequency, Error>;
 
     /// Numeric encodings for the flash frequencies supported by a chip
     fn flash_frequency_encodings(&self) -> HashMap<FlashFrequency, u8> {
@@ -297,16 +353,9 @@ pub trait Target: ReadEFuse {
     fn get_flash_image<'a>(
         &self,
         image: &'a dyn FirmwareImage<'a>,
-        bootloader: Option<Vec<u8>>,
-        partition_table: Option<PartitionTable>,
-        target_app_partition: Option<String>,
-        image_format: Option<ImageFormatKind>,
+        flash_data: FlashData,
         chip_revision: Option<(u32, u32)>,
-        min_rev_full: u16,
-        flash_mode: Option<FlashMode>,
-        flash_size: Option<FlashSize>,
-        flash_freq: Option<FlashFrequency>,
-        partition_table_offset: Option<u32>,
+        xtal_freq: XtalFrequency,
     ) -> Result<Box<dyn ImageFormat<'a> + 'a>, Error>;
 
     /// What is the MAC address?

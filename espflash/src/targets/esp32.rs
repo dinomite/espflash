@@ -1,14 +1,14 @@
 use std::ops::Range;
 
-use esp_idf_part::PartitionTable;
-
 use crate::{
     connection::Connection,
     elf::FirmwareImage,
     error::{Error, UnsupportedImageFormatError},
-    flasher::{FlashFrequency, FlashMode, FlashSize},
+    flasher::{FlashData, FlashFrequency},
     image_format::{IdfBootloaderFormat, ImageFormat, ImageFormatKind},
-    targets::{bytes_to_mac_addr, Chip, Esp32Params, ReadEFuse, SpiRegisters, Target},
+    targets::{
+        bytes_to_mac_addr, Chip, Esp32Params, ReadEFuse, SpiRegisters, Target, XtalFrequency,
+    },
 };
 
 const CHIP_DETECT_MAGIC_VALUES: &[u32] = &[0x00f0_1d83];
@@ -17,15 +17,6 @@ const FLASH_RANGES: &[Range<u32>] = &[
     0x400d_0000..0x4040_0000, // IROM
     0x3f40_0000..0x3f80_0000, // DROM
 ];
-
-const PARAMS: Esp32Params = Esp32Params::new(
-    0x1000,
-    0x1_0000,
-    0x3f_0000,
-    0,
-    FlashFrequency::_40Mhz,
-    include_bytes!("../../resources/bootloaders/esp32-bootloader.bin"),
-);
 
 const UART_CLKDIV_REG: u32 = 0x3ff4_0014;
 const UART_CLKDIV_MASK: u32 = 0xfffff;
@@ -142,10 +133,14 @@ impl Target for Esp32 {
         Ok((self.read_efuse(connection, 5)? >> 24) & 0x3)
     }
 
-    fn crystal_freq(&self, connection: &mut Connection) -> Result<u32, Error> {
+    fn crystal_freq(&self, connection: &mut Connection) -> Result<XtalFrequency, Error> {
         let uart_div = connection.read_reg(UART_CLKDIV_REG)? & UART_CLKDIV_MASK;
         let est_xtal = (connection.get_baud()? * uart_div) / 1_000_000 / XTAL_CLK_DIVIDER;
-        let norm_xtal = if est_xtal > 33 { 40 } else { 26 };
+        let norm_xtal = if est_xtal > 33 {
+            XtalFrequency::_40Mhz
+        } else {
+            XtalFrequency::_26Mhz
+        };
 
         Ok(norm_xtal)
     }
@@ -153,32 +148,49 @@ impl Target for Esp32 {
     fn get_flash_image<'a>(
         &self,
         image: &'a dyn FirmwareImage<'a>,
-        bootloader: Option<Vec<u8>>,
-        partition_table: Option<PartitionTable>,
-        target_app_partition: Option<String>,
-        image_format: Option<ImageFormatKind>,
+        flash_data: FlashData,
         _chip_revision: Option<(u32, u32)>,
-        min_rev_full: u16,
-        flash_mode: Option<FlashMode>,
-        flash_size: Option<FlashSize>,
-        flash_freq: Option<FlashFrequency>,
-        partition_table_offset: Option<u32>,
+        xtal_freq: XtalFrequency,
     ) -> Result<Box<dyn ImageFormat<'a> + 'a>, Error> {
-        let image_format = image_format.unwrap_or(ImageFormatKind::EspBootloader);
+        let image_format = flash_data
+            .image_format
+            .unwrap_or(ImageFormatKind::EspBootloader);
+
+        let booloader: &'static [u8] = match xtal_freq {
+            XtalFrequency::_40Mhz => {
+                include_bytes!("../../resources/bootloaders/esp32-bootloader.bin")
+            }
+            XtalFrequency::_26Mhz => {
+                include_bytes!("../../resources/bootloaders/esp32_26-bootloader.bin")
+            }
+            _ => {
+                return Err(Error::UnsupportedFeature {
+                    chip: Chip::Esp32,
+                    feature: "the selected crystal frequency".into(),
+                })
+            }
+        };
+
+        let params = Esp32Params::new(
+            0x1000,
+            0x1_0000,
+            0x3f_0000,
+            0,
+            FlashFrequency::_40Mhz,
+            booloader,
+        );
 
         match image_format {
             ImageFormatKind::EspBootloader => Ok(Box::new(IdfBootloaderFormat::new(
                 image,
                 Chip::Esp32,
-                min_rev_full,
-                PARAMS,
-                partition_table,
-                target_app_partition,
-                bootloader,
-                flash_mode,
-                flash_size,
-                flash_freq,
-                partition_table_offset,
+                flash_data.min_chip_rev,
+                params,
+                flash_data.partition_table,
+                flash_data.partition_table_offset,
+                flash_data.target_app_partition,
+                flash_data.bootloader,
+                flash_data.flash_settings,
             )?)),
             _ => Err(UnsupportedImageFormatError::new(image_format, Chip::Esp32, None).into()),
         }

@@ -1,14 +1,14 @@
 use std::ops::Range;
 
-use esp_idf_part::PartitionTable;
-
 use crate::{
     connection::Connection,
     elf::FirmwareImage,
     error::{Error, UnsupportedImageFormatError},
-    flasher::{FlashFrequency, FlashMode, FlashSize, FLASH_WRITE_SIZE},
+    flasher::{FlashData, FlashFrequency, FLASH_WRITE_SIZE},
     image_format::{IdfBootloaderFormat, ImageFormat, ImageFormatKind},
-    targets::{Chip, Esp32Params, ReadEFuse, SpiRegisters, Target, MAX_RAM_BLOCK_SIZE},
+    targets::{
+        Chip, Esp32Params, ReadEFuse, SpiRegisters, Target, XtalFrequency, MAX_RAM_BLOCK_SIZE,
+    },
 };
 
 const CHIP_DETECT_MAGIC_VALUES: &[u32] = &[0x0000_07c6];
@@ -123,9 +123,9 @@ impl Target for Esp32s2 {
         Ok((hi << 3) + lo)
     }
 
-    fn crystal_freq(&self, _connection: &mut Connection) -> Result<u32, Error> {
+    fn crystal_freq(&self, _connection: &mut Connection) -> Result<XtalFrequency, Error> {
         // The ESP32-S2's XTAL has a fixed frequency of 40MHz.
-        Ok(40)
+        Ok(XtalFrequency::_40Mhz)
     }
 
     fn flash_write_size(&self, connection: &mut Connection) -> Result<usize, Error> {
@@ -139,32 +139,32 @@ impl Target for Esp32s2 {
     fn get_flash_image<'a>(
         &self,
         image: &'a dyn FirmwareImage<'a>,
-        bootloader: Option<Vec<u8>>,
-        partition_table: Option<PartitionTable>,
-        target_app_partition: Option<String>,
-        image_format: Option<ImageFormatKind>,
+        flash_data: FlashData,
         _chip_revision: Option<(u32, u32)>,
-        min_rev_full: u16,
-        flash_mode: Option<FlashMode>,
-        flash_size: Option<FlashSize>,
-        flash_freq: Option<FlashFrequency>,
-        partition_table_offset: Option<u32>,
+        xtal_freq: XtalFrequency,
     ) -> Result<Box<dyn ImageFormat<'a> + 'a>, Error> {
-        let image_format = image_format.unwrap_or(ImageFormatKind::EspBootloader);
+        let image_format = flash_data
+            .image_format
+            .unwrap_or(ImageFormatKind::EspBootloader);
+
+        if xtal_freq != XtalFrequency::_40Mhz {
+            return Err(Error::UnsupportedFeature {
+                chip: Chip::Esp32s2,
+                feature: "the selected crystal frequency".into(),
+            });
+        }
 
         match image_format {
             ImageFormatKind::EspBootloader => Ok(Box::new(IdfBootloaderFormat::new(
                 image,
                 Chip::Esp32s2,
-                min_rev_full,
+                flash_data.min_chip_rev,
                 PARAMS,
-                partition_table,
-                target_app_partition,
-                bootloader,
-                flash_mode,
-                flash_size,
-                flash_freq,
-                partition_table_offset,
+                flash_data.partition_table,
+                flash_data.partition_table_offset,
+                flash_data.target_app_partition,
+                flash_data.bootloader,
+                flash_data.flash_settings,
             )?)),
             _ => Err(UnsupportedImageFormatError::new(image_format, Chip::Esp32s2, None).into()),
         }

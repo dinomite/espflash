@@ -4,24 +4,29 @@
 //! application to a target device. It additionally provides some operations to
 //! read information from the target device.
 
-use std::{borrow::Cow, str::FromStr, thread::sleep};
+use std::{borrow::Cow, fs, path::Path, str::FromStr, thread::sleep};
 
 use bytemuck::{Pod, Zeroable, __core::time::Duration};
 use esp_idf_part::PartitionTable;
 use log::{debug, info, warn};
+use miette::{IntoDiagnostic, Result};
 use serde::{Deserialize, Serialize};
 use serialport::UsbPortInfo;
 use strum::{Display, EnumIter, EnumVariantNames};
 
 use self::stubs::FlashStub;
 use crate::{
+    cli::parse_partition_table,
     command::{Command, CommandType},
-    connection::Connection,
+    connection::{
+        reset::{ResetAfterOperation, ResetBeforeOperation},
+        Connection,
+    },
     elf::{ElfFirmwareImage, FirmwareImage, RomSegment},
     error::{ConnectionError, Error, ResultExt},
     image_format::ImageFormatKind,
     interface::Interface,
-    targets::Chip,
+    targets::{Chip, XtalFrequency},
 };
 
 mod stubs;
@@ -254,6 +259,85 @@ impl FromStr for FlashSize {
     }
 }
 
+/// Flash settings to use when flashing a device
+#[derive(Copy, Clone, Debug)]
+#[non_exhaustive]
+pub struct FlashSettings {
+    pub mode: Option<FlashMode>,
+    pub size: Option<FlashSize>,
+    pub freq: Option<FlashFrequency>,
+}
+
+impl FlashSettings {
+    pub const fn default() -> Self {
+        FlashSettings {
+            mode: None,
+            size: None,
+            freq: None,
+        }
+    }
+    pub fn new(
+        mode: Option<FlashMode>,
+        size: Option<FlashSize>,
+        freq: Option<FlashFrequency>,
+    ) -> Self {
+        FlashSettings { mode, size, freq }
+    }
+}
+
+/// Flash data and configuration
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct FlashData {
+    pub bootloader: Option<Vec<u8>>,
+    pub partition_table: Option<PartitionTable>,
+    pub partition_table_offset: Option<u32>,
+    pub image_format: Option<ImageFormatKind>,
+    pub target_app_partition: Option<String>,
+    pub flash_settings: FlashSettings,
+    pub min_chip_rev: u16,
+}
+
+impl FlashData {
+    pub fn new(
+        bootloader: Option<&Path>,
+        partition_table: Option<&Path>,
+        partition_table_offset: Option<u32>,
+        image_format: Option<ImageFormatKind>,
+        target_app_partition: Option<String>,
+        flash_settings: FlashSettings,
+        min_chip_rev: u16,
+    ) -> Result<Self> {
+        // If the '--bootloader' option is provided, load the binary file at the
+        // specified path.
+        let bootloader = if let Some(path) = bootloader {
+            let path = fs::canonicalize(path).into_diagnostic()?;
+            let data = fs::read(path).into_diagnostic()?;
+
+            Some(data)
+        } else {
+            None
+        };
+
+        // If the '-T' option is provided, load the partition table from
+        // the CSV or binary file at the specified path.
+        let partition_table = match partition_table {
+            Some(path) => Some(parse_partition_table(path)?),
+            None => None,
+        };
+
+        Ok(FlashData {
+            bootloader,
+            partition_table,
+            partition_table_offset,
+            image_format,
+            target_app_partition,
+            flash_settings,
+            min_chip_rev,
+        })
+    }
+}
+
 /// Parameters of the attached SPI flash chip (sizes, etc).
 #[derive(Copy, Clone, Debug)]
 #[repr(C)]
@@ -380,7 +464,7 @@ pub struct DeviceInfo {
     /// The revision of the chip
     pub revision: Option<(u32, u32)>,
     /// The crystal frequency of the chip
-    pub crystal_frequency: u32,
+    pub crystal_frequency: XtalFrequency,
     /// The total available flash size
     pub flash_size: FlashSize,
     /// Device features
@@ -426,24 +510,33 @@ impl Flasher {
         verify: bool,
         skip: bool,
         chip: Option<Chip>,
+        after_operation: ResetAfterOperation,
+        before_operation: ResetBeforeOperation,
     ) -> Result<Self, Error> {
         // Establish a connection to the device using the default baud rate of 115,200
         // and timeout of 3 seconds.
-        let mut connection = Connection::new(serial, port_info);
+        let mut connection = Connection::new(serial, port_info, after_operation, before_operation);
         connection.begin()?;
         connection.set_timeout(DEFAULT_TIMEOUT)?;
 
-        // Detect which chip we are connected to.
-        let magic = connection.read_reg(CHIP_DETECT_MAGIC_REG_ADDR)?;
-        let detected_chip = Chip::from_magic(magic)?;
-        if let Some(chip) = chip {
-            if chip != detected_chip {
-                return Err(Error::ChipMismatch(
-                    chip.to_string(),
-                    detected_chip.to_string(),
-                ));
+        let detected_chip = if before_operation != ResetBeforeOperation::NoResetNoSync {
+            // Detect which chip we are connected to.
+            let magic = connection.read_reg(CHIP_DETECT_MAGIC_REG_ADDR)?;
+            let detected_chip = Chip::from_magic(magic)?;
+            if let Some(chip) = chip {
+                if chip != detected_chip {
+                    return Err(Error::ChipMismatch(
+                        chip.to_string(),
+                        detected_chip.to_string(),
+                    ));
+                }
             }
-        }
+            detected_chip
+        } else if before_operation == ResetBeforeOperation::NoResetNoSync && chip.is_some() {
+            chip.unwrap()
+        } else {
+            return Err(Error::ChipNotProvided);
+        };
 
         let mut flasher = Flasher {
             connection,
@@ -454,6 +547,10 @@ impl Flasher {
             verify,
             skip,
         };
+
+        if before_operation == ResetBeforeOperation::NoResetNoSync {
+            return Ok(flasher);
+        }
 
         // Load flash stub if enabled
         if use_stub {
@@ -808,19 +905,12 @@ impl Flasher {
     }
 
     /// Load an ELF image to flash and execute it
-    pub fn load_elf_to_flash_with_format(
+    pub fn load_elf_to_flash(
         &mut self,
         elf_data: &[u8],
-        bootloader: Option<Vec<u8>>,
-        partition_table: Option<PartitionTable>,
-        target_app_partition: Option<String>,
-        image_format: Option<ImageFormatKind>,
-        flash_mode: Option<FlashMode>,
-        flash_size: Option<FlashSize>,
-        flash_freq: Option<FlashFrequency>,
-        partition_table_offset: Option<u32>,
-        min_rev_full: u16,
+        flash_data: FlashData,
         mut progress: Option<&mut dyn ProgressCallbacks>,
+        xtal_freq: XtalFrequency,
     ) -> Result<(), Error> {
         let image = ElfFirmwareImage::try_from(elf_data)?;
 
@@ -843,16 +933,9 @@ impl Flasher {
 
         let image = self.chip.into_target().get_flash_image(
             &image,
-            bootloader,
-            partition_table,
-            target_app_partition,
-            image_format,
+            flash_data,
             chip_revision,
-            min_rev_full,
-            flash_mode,
-            flash_size.or(Some(self.flash_size)),
-            flash_freq,
-            partition_table_offset,
+            xtal_freq,
         )?;
 
         // When the `cli` feature is enabled, display the image size information.
@@ -915,35 +998,6 @@ impl Flasher {
             })
     }
 
-    /// Load an ELF image to flash and execute it
-    pub fn load_elf_to_flash(
-        &mut self,
-        elf_data: &[u8],
-        bootloader: Option<Vec<u8>>,
-        partition_table: Option<PartitionTable>,
-        target_app_partition: Option<String>,
-        flash_mode: Option<FlashMode>,
-        flash_size: Option<FlashSize>,
-        flash_freq: Option<FlashFrequency>,
-        partition_table_offset: Option<u32>,
-        min_rev_full: u16,
-        progress: Option<&mut dyn ProgressCallbacks>,
-    ) -> Result<(), Error> {
-        self.load_elf_to_flash_with_format(
-            elf_data,
-            bootloader,
-            partition_table,
-            target_app_partition,
-            None,
-            flash_mode,
-            flash_size,
-            flash_freq,
-            partition_table_offset,
-            min_rev_full,
-            progress,
-        )
-    }
-
     pub fn change_baud(&mut self, speed: u32) -> Result<(), Error> {
         debug!("Change baud to: {}", speed);
 
@@ -960,7 +1014,7 @@ impl Flasher {
         // The ROM code thinks it uses a 40 MHz XTAL. Recompute the baud rate in order
         // to trick the ROM code to set the correct baud rate for a 26 MHz XTAL.
         let mut new_baud = speed;
-        if self.chip == Chip::Esp32c2 && !self.use_stub && xtal_freq == 26 {
+        if self.chip == Chip::Esp32c2 && !self.use_stub && xtal_freq == XtalFrequency::_26Mhz {
             new_baud = new_baud * 40 / 26;
         }
 

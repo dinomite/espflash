@@ -15,9 +15,10 @@ use espflash::{
         FlashConfigArgs, MonitorArgs, PartitionTableArgs,
     },
     error::Error as EspflashError,
+    flasher::{FlashData, FlashSettings},
     image_format::ImageFormatKind,
     logging::initialize_logger,
-    targets::Chip,
+    targets::{Chip, XtalFrequency},
     update::check_for_update,
 };
 use log::{debug, info, LevelFilter};
@@ -251,8 +252,11 @@ pub fn erase_parts(args: ErasePartsArgs, config: &Config) -> Result<()> {
     };
 
     info!("Erasing the following partitions: {:?}", args.erase_parts);
+    let chip: Chip = flash.chip();
     erase_partitions(&mut flash, partition_table, Some(args.erase_parts), None)?;
-    flash.connection().reset()?;
+    flash
+        .connection()
+        .reset_after(!args.connect_args.no_stub, chip)?;
 
     Ok(())
 }
@@ -313,45 +317,46 @@ fn flash(args: FlashArgs, config: &Config) -> Result<()> {
             println!("Partition table:   {}", path.display());
         }
 
-        let partition_table = match partition_table {
-            Some(path) => Some(parse_partition_table(path)?),
-            None => None,
-        };
+        let flash_settings = FlashSettings::new(
+            args.build_args.flash_config_args.flash_mode,
+            args.build_args.flash_config_args.flash_size,
+            args.build_args.flash_config_args.flash_freq,
+        );
+
+        let flash_data = FlashData::new(
+            bootloader,
+            partition_table,
+            args.flash_args.partition_table_offset,
+            args.flash_args.format.or(metadata.format),
+            args.flash_args.target_app_partition,
+            flash_settings,
+            args.flash_args.min_chip_rev,
+        )?;
 
         if args.flash_args.erase_parts.is_some() || args.flash_args.erase_data_parts.is_some() {
             erase_partitions(
                 &mut flasher,
-                partition_table.clone(),
+                flash_data.partition_table.clone(),
                 args.flash_args.erase_parts,
                 args.flash_args.erase_data_parts,
             )?;
         }
 
-        flash_elf_image(
-            &mut flasher,
-            &elf_data,
-            bootloader,
-            partition_table,
-            args.flash_args.target_app_partition,
-            args.flash_args.format.or(metadata.format),
-            args.build_args.flash_config_args.flash_mode,
-            args.build_args.flash_config_args.flash_size,
-            args.build_args.flash_config_args.flash_freq,
-            args.flash_args.partition_table_offset,
-            args.flash_args.min_chip_rev,
-        )?;
+        flash_elf_image(&mut flasher, &elf_data, flash_data, target_xtal_freq)?;
     }
 
     if args.flash_args.monitor {
         let pid = flasher.get_usb_pid()?;
 
         // The 26MHz ESP32-C2's need to be treated as a special case.
-        let default_baud =
-            if chip == Chip::Esp32c2 && args.connect_args.no_stub && target_xtal_freq == 26 {
-                74_880
-            } else {
-                115_200
-            };
+        let default_baud = if chip == Chip::Esp32c2
+            && args.connect_args.no_stub
+            && target_xtal_freq == XtalFrequency::_26Mhz
+        {
+            74_880
+        } else {
+            115_200
+        };
 
         monitor(
             flasher.into_interface(),
@@ -564,21 +569,35 @@ fn save_image(args: SaveImageArgs) -> Result<()> {
         println!("Partition table:   {}", path.display());
     }
 
-    save_elf_as_image(
-        args.save_image_args.chip,
-        args.save_image_args.min_chip_rev,
-        &elf_data,
-        args.save_image_args.file,
-        args.format.or(metadata.format),
+    let flash_settings = FlashSettings::new(
         args.build_args.flash_config_args.flash_mode,
         args.build_args.flash_config_args.flash_size,
         args.build_args.flash_config_args.flash_freq,
+    );
+
+    let flash_data = FlashData::new(
+        bootloader.as_deref(),
+        partition_table.as_deref(),
         args.save_image_args.partition_table_offset,
-        args.save_image_args.merge,
-        bootloader,
-        partition_table,
+        args.format.or(metadata.format),
         args.save_image_args.target_app_partition,
+        flash_settings,
+        args.save_image_args.min_chip_rev,
+    )?;
+
+    let xtal_freq = args
+        .save_image_args
+        .xtal_freq
+        .unwrap_or(XtalFrequency::default(args.save_image_args.chip));
+
+    save_elf_as_image(
+        &elf_data,
+        args.save_image_args.chip,
+        args.save_image_args.file,
+        flash_data,
+        args.save_image_args.merge,
         args.save_image_args.skip_padding,
+        xtal_freq,
     )?;
 
     Ok(())

@@ -23,7 +23,7 @@ use clap_complete::Shell;
 use comfy_table::{modifiers, presets::UTF8_FULL, Attribute, Cell, Color, Table};
 use esp_idf_part::{DataType, Partition, PartitionTable};
 use indicatif::{style::ProgressStyle, HumanCount, ProgressBar};
-use log::{debug, info};
+use log::{debug, info, warn};
 use miette::{IntoDiagnostic, Result, WrapErr};
 use serialport::{SerialPortType, UsbPortInfo};
 
@@ -33,12 +33,13 @@ use self::{
     serial::get_serial_port_info,
 };
 use crate::{
+    connection::reset::{ResetAfterOperation, ResetBeforeOperation},
     elf::ElfFirmwareImage,
     error::{Error, MissingPartition, MissingPartitionTable},
-    flasher::{FlashFrequency, FlashMode, FlashSize, Flasher, ProgressCallbacks},
+    flasher::{FlashData, FlashFrequency, FlashMode, FlashSize, Flasher, ProgressCallbacks},
     image_format::ImageFormatKind,
     interface::Interface,
-    targets::Chip,
+    targets::{Chip, XtalFrequency},
 };
 
 pub mod config;
@@ -50,9 +51,15 @@ mod serial;
 #[derive(Debug, Args)]
 #[non_exhaustive]
 pub struct ConnectArgs {
+    /// Reset operation to perform after connecting to the target
+    #[arg(short = 'a', long, default_value = "hard-reset")]
+    pub after: ResetAfterOperation,
     /// Baud rate at which to communicate with target device
-    #[arg(short = 'b', long, env = "ESPFLASH_BAUD")]
+    #[arg(short = 'B', long, env = "ESPFLASH_BAUD")]
     pub baud: Option<u32>,
+    /// Reset operation to perform before connecting to the target
+    #[arg(short = 'b', long, default_value = "default-reset")]
+    pub before: ResetBeforeOperation,
     /// Target device
     #[arg(short = 'c', long)]
     pub chip: Option<Chip>,
@@ -220,6 +227,9 @@ pub struct SaveImageArgs {
     /// Don't pad the image to the flash size
     #[arg(long, short = 'P', requires = "merge")]
     pub skip_padding: bool,
+    /// Cristal frequency of the target
+    #[arg(long, short = 'x')]
+    pub xtal_freq: Option<XtalFrequency>,
 }
 
 /// Open the serial monitor without flashing
@@ -262,6 +272,15 @@ pub fn connect(
     no_verify: bool,
     no_skip: bool,
 ) -> Result<Flasher> {
+    if args.before == ResetBeforeOperation::NoReset
+        || args.before == ResetBeforeOperation::NoResetNoSync
+    {
+        warn!(
+            "Pre-connection option '{:#?}' was selected. Connection may fail if the chip is not in bootloader or flasher stub mode.",
+            args.before
+        );
+    }
+
     let port_info = get_serial_port_info(args, config)?;
 
     // Attempt to open the serial port and set its initial baud rate.
@@ -304,6 +323,8 @@ pub fn connect(
         !no_verify,
         !no_skip,
         args.chip,
+        args.after,
+        args.before,
     )?)
 }
 
@@ -372,7 +393,7 @@ pub fn print_board_info(flasher: &mut Flasher) -> Result<()> {
     } else {
         println!();
     }
-    println!("Crystal frequency: {}MHz", info.crystal_frequency);
+    println!("Crystal frequency: {}", info.crystal_frequency);
     println!("Flash size:        {}", info.flash_size);
     println!("Features:          {}", info.features.join(", "));
     println!("MAC address:       {}", info.mac_address);
@@ -400,7 +421,7 @@ pub fn serial_monitor(args: MonitorArgs, config: &Config) -> Result<()> {
     // The 26MHz ESP32-C2's need to be treated as a special case.
     let default_baud = if chip == Chip::Esp32c2
         && args.connect_args.no_stub
-        && target.crystal_freq(flasher.connection())? == 26
+        && target.crystal_freq(flasher.connection())? == XtalFrequency::_26Mhz
     {
         74_880
     } else {
@@ -418,69 +439,22 @@ pub fn serial_monitor(args: MonitorArgs, config: &Config) -> Result<()> {
 
 /// Convert the provided firmware image from ELF to binary
 pub fn save_elf_as_image(
-    chip: Chip,
-    min_rev_full: u16,
     elf_data: &[u8],
+    chip: Chip,
     image_path: PathBuf,
-    image_format: Option<ImageFormatKind>,
-    flash_mode: Option<FlashMode>,
-    flash_size: Option<FlashSize>,
-    flash_freq: Option<FlashFrequency>,
-    partition_table_offset: Option<u32>,
+    flash_data: FlashData,
     merge: bool,
-    bootloader_path: Option<PathBuf>,
-    partition_table_path: Option<PathBuf>,
-    target_app_partition: Option<String>,
     skip_padding: bool,
+    xtal_freq: XtalFrequency,
 ) -> Result<()> {
     let image = ElfFirmwareImage::try_from(elf_data)?;
 
     if merge {
-        // merge_bin is TRUE
-        // merge bootloader, partition table and app binaries
-        // basic functionality, only merge 3 binaries
-
-        // If the '-B' option is provided, load the bootloader binary file at the
-        // specified path.
-        let bootloader = if let Some(bootloader_path) = bootloader_path {
-            let path = fs::canonicalize(bootloader_path).into_diagnostic()?;
-            let data = fs::read(path).into_diagnostic()?;
-
-            Some(data)
-        } else {
-            None
-        };
-
-        // If the '-T' option is provided, load the partition table from
-        // the CSV or binary file at the specified path.
-        let partition_table = if let Some(partition_table_path) = partition_table_path {
-            let path = fs::canonicalize(partition_table_path).into_diagnostic()?;
-            let data = fs::read(path)
-                .into_diagnostic()
-                .wrap_err("Failed to open partition table")?;
-
-            let table = PartitionTable::try_from(data).into_diagnostic()?;
-
-            Some(table)
-        } else {
-            None
-        };
-
         // To get a chip revision, the connection is needed
         // For simplicity, the revision None is used
-        let image = chip.into_target().get_flash_image(
-            &image,
-            bootloader,
-            partition_table,
-            target_app_partition,
-            image_format,
-            None,
-            min_rev_full,
-            flash_mode,
-            flash_size,
-            flash_freq,
-            partition_table_offset,
-        )?;
+        let image =
+            chip.into_target()
+                .get_flash_image(&image, flash_data.clone(), None, xtal_freq)?;
 
         display_image_size(image.app_size(), image.part_size());
 
@@ -505,25 +479,16 @@ pub fn save_elf_as_image(
             // Take flash_size as input parameter, if None, use default value of 4Mb
             let padding_bytes = vec![
                 0xffu8;
-                flash_size.unwrap_or_default().size() as usize
+                flash_data.flash_settings.size.unwrap_or_default().size()
+                    as usize
                     - file.metadata().into_diagnostic()?.len() as usize
             ];
             file.write_all(&padding_bytes).into_diagnostic()?;
         }
     } else {
-        let image = chip.into_target().get_flash_image(
-            &image,
-            None,
-            None,
-            None,
-            image_format,
-            None,
-            min_rev_full,
-            flash_mode,
-            flash_size,
-            flash_freq,
-            partition_table_offset,
-        )?;
+        let image = chip
+            .into_target()
+            .get_flash_image(&image, flash_data, None, xtal_freq)?;
 
         display_image_size(image.app_size(), image.part_size());
 
@@ -602,8 +567,10 @@ pub fn erase_flash(args: EraseFlashArgs, config: &Config) -> Result<()> {
 
     info!("Erasing Flash...");
     flash.erase_flash()?;
-
-    flash.connection().reset()?;
+    let chip = flash.chip();
+    flash
+        .connection()
+        .reset_after(!args.connect_args.no_stub, chip)?;
 
     Ok(())
 }
@@ -620,7 +587,10 @@ pub fn erase_region(args: EraseRegionArgs, config: &Config) -> Result<()> {
         args.addr, args.size
     );
     flash.erase_region(args.addr, args.size)?;
-    flash.connection().reset()?;
+    let chip = flash.chip();
+    flash
+        .connection()
+        .reset_after(!args.connect_args.no_stub, chip)?;
 
     Ok(())
 }
@@ -629,41 +599,16 @@ pub fn erase_region(args: EraseRegionArgs, config: &Config) -> Result<()> {
 pub fn flash_elf_image(
     flasher: &mut Flasher,
     elf_data: &[u8],
-    bootloader: Option<&Path>,
-    partition_table: Option<PartitionTable>,
-    target_app_partition: Option<String>,
-    image_format: Option<ImageFormatKind>,
-    flash_mode: Option<FlashMode>,
-    flash_size: Option<FlashSize>,
-    flash_freq: Option<FlashFrequency>,
-    partition_table_offset: Option<u32>,
-    min_rev_full: u16,
+    flash_data: FlashData,
+    xtal_freq: XtalFrequency,
 ) -> Result<()> {
-    // If the '--bootloader' option is provided, load the binary file at the
-    // specified path.
-    let bootloader = if let Some(path) = bootloader {
-        let path = fs::canonicalize(path).into_diagnostic()?;
-        let data = fs::read(path).into_diagnostic()?;
-
-        Some(data)
-    } else {
-        None
-    };
-
     // Load the ELF data, optionally using the provider bootloader/partition
     // table/image format, to the device's flash memory.
-    flasher.load_elf_to_flash_with_format(
+    flasher.load_elf_to_flash(
         elf_data,
-        bootloader,
-        partition_table,
-        target_app_partition,
-        image_format,
-        flash_mode,
-        flash_size,
-        flash_freq,
-        partition_table_offset,
-        min_rev_full,
+        flash_data,
         Some(&mut EspflashProgress::default()),
+        xtal_freq,
     )?;
     info!("Flashing has completed!");
 

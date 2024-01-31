@@ -47,6 +47,13 @@ pub enum Error {
     )]
     ChipMismatch(String, String),
 
+    #[error("Chip not argument provided, this is required when using the `--before no-reset-no-sync` option")]
+    #[diagnostic(
+        code(espflash::chip_not_provided),
+        help("Ensure that you provide the `-c/--chip` option with the proper chip")
+    )]
+    ChipNotProvided,
+
     #[error("Supplied ELF image can not be run from RAM, as it includes segments mapped to ROM addresses")]
     #[diagnostic(
         code(espflash::not_ram_loadable),
@@ -115,6 +122,10 @@ pub enum Error {
         help("Make sure the correct device is connected to the host system")
     )]
     SerialNotFound(String),
+
+    #[error("Soft reseting is currently only supported on ESP8266")]
+    #[diagnostic(code(espflash::soft_reset_not_available))]
+    SoftResetNotAvailable,
 
     #[error("Unrecognized image format '{0}'")]
     #[diagnostic(
@@ -194,6 +205,8 @@ impl From<io::Error> for Error {
     }
 }
 
+#[cfg(feature = "serialport")]
+#[cfg_attr(docsrs, doc(cfg(feature = "serialport")))]
 impl From<serialport::Error> for Error {
     fn from(err: serialport::Error) -> Self {
         Self::Connection(err.into())
@@ -240,6 +253,13 @@ pub enum ConnectionError {
     #[error("Invalid stub handshake response received")]
     InvalidStubHandshake,
 
+    #[error("Download mode successfully detected, but getting no sync reply")]
+    #[diagnostic(
+        code(espflash::no_sync_reply),
+        help("The serial TX path seems to be down")
+    )]
+    NoSyncReply,
+
     #[error("Received packet to large for buffer")]
     #[diagnostic(
         code(espflash::oversized_packet),
@@ -247,13 +267,22 @@ pub enum ConnectionError {
     )]
     OverSizedPacket,
 
+    #[error("Failed to read the available bytes on the serial port. Available bytes: {0}, Read bytes: {1}")]
+    #[diagnostic(code(espflash::read_missmatch))]
+    ReadMissmatch(u32, u32),
+
     #[error("Timeout while running {0}command")]
     #[diagnostic(code(espflash::timeout))]
     Timeout(TimedOutCommand),
 
+    #[cfg(feature = "serialport")]
     #[error("IO error while using serial port: {0}")]
     #[diagnostic(code(espflash::serial_error))]
     Serial(#[source] serialport::Error),
+
+    #[error("Wrong boot mode detected ({0})! The chip needs to be in download mode.")]
+    #[diagnostic(code(espflash::wrong_boot_mode))]
+    WrongBootMode(String),
 }
 
 impl From<io::Error> for ConnectionError {
@@ -262,6 +291,8 @@ impl From<io::Error> for ConnectionError {
     }
 }
 
+#[cfg(feature = "serialport")]
+#[cfg_attr(docsrs, doc(cfg(feature = "serialport")))]
 impl From<serialport::Error> for ConnectionError {
     fn from(err: serialport::Error) -> Self {
         use serialport::ErrorKind;
@@ -544,6 +575,8 @@ impl<T> ResultExt for Result<T, Error> {
     }
 }
 
+#[cfg(feature = "serialport")]
+#[cfg_attr(docsrs, doc(cfg(feature = "serialport")))]
 fn from_error_kind<E>(kind: io::ErrorKind, err: E) -> ConnectionError
 where
     E: Into<serialport::Error>,
