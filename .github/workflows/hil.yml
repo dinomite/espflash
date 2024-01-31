@@ -154,7 +154,7 @@ jobs:
           ESPFLASH_PORT: /dev/serial_ports/${{ matrix.board }}
         shell: 'script -qec "bash {0}"'
         run: |
-          result=$(timeout 5s cat {{ env.ESPFLASH_PORT }} 2>&1)
+          result=$(timeout 5s cat ${{ env.ESPFLASH_PORT }} 2>&1)
           echo "$result"
 
           ret=$?
