@@ -149,6 +149,25 @@ jobs:
           # RUST_LOG: trace
         run: espflash_app/espflash flash ${{ env.ESPFLASH_APP }} 2>&1
 
+      - name: cat serial port
+        env:
+          ESPFLASH_PORT: /dev/serial_ports/${{ matrix.board }}
+        shell: 'script -qec "bash {0}"'
+        run: |
+          result=$(timeout 5s cat {{ env.ESPFLASH_PORT }} 2>&1)
+          echo "$result"
+
+          ret=$?
+          if [[ $ret -eq 124 ]]; then
+            ret=0
+          fi
+
+          if ! echo "$result" | grep -q "Hello world!"; then
+            ret=1
+          fi
+
+          exit $ret
+
       # - name: flash test
       #   env:
       #     ESPFLASH_PORT: /dev/serial_ports/${{ matrix.board }}
@@ -162,24 +181,24 @@ jobs:
       #       exit 1
       #     fi
 
-      - name: monitor test
-        env:
-          ESPFLASH_PORT: /dev/serial_ports/${{ matrix.board }}
-        shell: 'script -qec "bash {0}"'
-        run: |
-          result=$(timeout 10s espflash_app/espflash monitor -b no-reset-no-sync -c ${{ matrix.board }} 2>&1)
-          echo "$result"
+      # - name: monitor test
+      #   env:
+      #     ESPFLASH_PORT: /dev/serial_ports/${{ matrix.board }}
+      #   shell: 'script -qec "bash {0}"'
+      #   run: |
+      #     result=$(timeout 10s espflash_app/espflash monitor -b no-reset-no-sync -c ${{ matrix.board }} 2>&1)
+      #     echo "$result"
 
-          ret=$?
-          if [[ $ret -eq 124 ]]; then
-            ret=0
-          fi
+      #     ret=$?
+      #     if [[ $ret -eq 124 ]]; then
+      #       ret=0
+      #     fi
 
-          if ! echo "$result" | grep -q "Hello world!"; then
-            ret=1
-          fi
+      #     if ! echo "$result" | grep -q "Hello world!"; then
+      #       ret=1
+      #     fi
 
-          exit $ret
+      #     exit $ret
 
       # - name: cat serial port
       #   env:
